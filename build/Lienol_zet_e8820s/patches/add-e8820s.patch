@@ -1,0 +1,190 @@
+diff -Naur target/linux/ramips/base-files/etc/board.d/01_leds target/linux/ramips/base-files/etc/board.d/01_leds
+--- target/linux/ramips/base-files/etc/board.d/01_leds	2020-10-18 03:28:06.000000000 +0800
++++ target/linux/ramips/base-files/etc/board.d/01_leds	2020-10-25 21:35:09.000000000 +0800
+@@ -452,6 +452,10 @@
+ 	set_wifi_led "$boardname:blue:air"
+ 	ucidef_set_led_switch "wan" "wan" "$boardname:blue:wan" "switch0" "0x10"
+ 	;;
++zte,e8820v2)
++    ucidef_set_led_netdev"sys""SYS_LED" "$boardname:white:sys""eth0" "txrx"
++    ucidef_set_led_default"power""POWER_LED" "$boardname:white:power""1"
++    ;;
+ esac
+ 
+ board_config_flush
+diff -Naur target/linux/ramips/base-files/etc/board.d/02_network target/linux/ramips/base-files/etc/board.d/02_network
+--- target/linux/ramips/base-files/etc/board.d/02_network	2020-10-18 03:28:06.000000000 +0800
++++ target/linux/ramips/base-files/etc/board.d/02_network	2020-10-25 21:35:53.000000000 +0800
+@@ -202,6 +202,7 @@
+ 	whr-300hp2|\
+ 	whr-600d|\
+ 	wsr-1166|\
++    zte,e8820s|\
+ 	wsr-600)
+ 		ucidef_add_switch "switch0" \
+ 			"0:lan:1" "1:lan:2" "2:lan:3" "3:lan:4" "4:wan:5" "6@eth0"
+diff -Naur target/linux/ramips/dts/E8820S.dts target/linux/ramips/dts/E8820S.dts
+--- target/linux/ramips/dts/E8820S.dts	1970-01-01 08:00:00.000000000 +0800
++++ target/linux/ramips/dts/E8820S.dts	2020-10-26 10:46:44.442277300 +0800
+@@ -0,0 +1,145 @@
++/dts-v1/;
++
++#include "mt7621.dtsi"
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++
++/ {
++	compatible = "zte,e8820s", "mediatek,mt7621-soc";
++	model = "ZTE E8820S";
++
++	aliases {
++		led-boot = &led_wps;
++		led-failsafe = &led_wps;
++	};
++
++	memory@0 {
++		device_type = "memory";
++		reg = <0x0 0x10000000>;
++	};
++
++	chosen {
++		bootargs = "console=ttyS0,115200";
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		internet {
++			label = "e8820s:blue:internet";
++			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
++		};
++
++		led_wps: wps {
++			label = "e8820s:blue:wps";
++			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
++		};
++
++		usb {
++			label = "e8820s:blue:usb";
++			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
++			trigger-sources = <&xhci_ehci_port1>, <&ehci_port2>;
++			linux,default-trigger = "usbport";
++		};
++	};
++
++    keys {
++        compatible= "gpio-keys-polled";
++        poll-interval= <20>;
++
++        reset{
++			label= "reset";
++			gpios= <&gpio0 18 GPIO_ACTIVE_LOW>;
++			linux,code= <KEY_RESTART>;
++		};
++
++        wps{
++			label= "wps";
++			gpios= <&gpio0 8 GPIO_ACTIVE_LOW>;
++			linux,code= <KEY_WPS_BUTTON>;
++		};
++		wifi {
++			label = "wifi";
++			gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_RFKILL>;
++		};
++	};
++};
++
++&spi0 {
++	status = "okay";
++
++	m25p80@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			partition@0 {
++				label = "u-boot";
++				reg = <0x0 0x30000>;
++				read-only;
++			};
++
++			partition@30000 {
++				label = "u-boot-env";
++				reg = <0x30000 0x10000>;
++				read-only;
++			};
++
++			factory: partition@40000 {
++				label = "factory";
++				reg = <0x40000 0x10000>;
++				read-only;
++			};
++
++			partition@50000 {
++				compatible = "denx,uimage";
++				label = "firmware";
++				reg = <0x50000 0xfb0000>;
++			};
++		};
++	};
++};
++
++&pcie {
++	status = "okay";
++};
++
++&pcie0 {
++	mt76@0,0 {
++		reg = <0x0000 0 0 0 0>;
++		mediatek,mtd-eeprom = <&factory 0x0000>;
++	};
++};
++
++&pcie1 {
++	mt76@0,0 {
++		reg = <0x0000 0 0 0 0>;
++		mediatek,mtd-eeprom = <&factory 0x8000>;
++		ieee80211-freq-limit = <5000000 6000000>;
++
++		led {
++			led-sources = <2>;
++			led-active-low;
++		};
++	};
++};
++
++&ethernet {
++	mtd-mac-address = <&factory 0xe000>;
++};
++
++&pinctrl {
++	state_default: pinctrl0 {
++		gpio {
++			ralink,group = "i2c", "uart2", "uart3", "wdt";
++			ralink,function = "gpio";
++		};
++	};
++};
+diff -Naur target/linux/ramips/image/mt7621.mk target/linux/ramips/image/mt7621.mk
+--- target/linux/ramips/image/mt7621.mk	2020-10-18 03:28:06.000000000 +0800
++++ target/linux/ramips/image/mt7621.mk	2020-10-25 21:37:33.000000000 +0800
+@@ -706,3 +706,12 @@
+ 	kmod-usb3 kmod-usb-ledtrig-usbport wpad-basic
+ endef
+ TARGET_DEVICES += zbt-wg3526-32M
++
++define Device/zte_e8820s
++  DTS := E8820S
++  IMAGE_SIZE := 16064k
++  DEVICE_TITLE := ZTE E8820S
++  DEVICE_PACKAGES := \
++	kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-usb-ledtrig-usbport wpad-basic
++endef
++TARGET_DEVICES += zte_e8820s
